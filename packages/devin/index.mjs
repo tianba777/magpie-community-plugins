@@ -527,6 +527,75 @@ async function success(key, server) {
   return { type: "success", provider: ID, key, metadata }
 }
 
+// A remote browser can't reach the loopback listener in a Docker container.
+// This round uses the same PKCE redirect, but takes its full URL as text:
+// only the code is exchanged, never the pasted URL fetched or listened on.
+async function pasteSignIn({ now = Date.now, exchange: redeem = exchange, success: identify = success } = {}) {
+  const verifier = randomBytes(48).toString("base64url")
+  const state = randomBytes(24).toString("base64url")
+  const challenge = createHash("sha256").update(verifier).digest("base64url")
+  // Use a dynamic loopback port without opening a listener, and keep the
+  // redirect exactly the same in the authorization and exchange requests.
+  const port = 49152 + (randomBytes(2).readUInt16BE(0) & 0x3fff)
+  const redirect = `http://127.0.0.1:${port}/callback`
+  const target = new URL(redirect)
+  const expires = now() + SIGN_IN_TIMEOUT
+  const fail = (error) => ({ type: "failed", error })
+  let finished
+  let pending
+  let submitted
+  const q = new URLSearchParams({
+    redirect_uri: redirect,
+    state,
+    prompt: "select_account",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    cli_pkce_marker: "1",
+  })
+  return {
+    url: `${AUTHORIZE}?${q}`,
+    instructions: "Sign in to Devin. The final 127.0.0.1 page may fail to connect; copy its entire URL from the browser's address bar and paste it here within 10 minutes. Treat that URL as a sign-in secret.",
+    method: "code",
+    callback: async (raw) => {
+      if (!pending && !finished && now() >= expires) finished = fail("The Devin sign-in timed out; start it again.")
+      if (finished && !pending) return finished
+      let url
+      try {
+        if (typeof raw !== "string" || !raw.trim()) return fail("Paste the full callback URL from the browser's address bar.")
+        url = new URL(raw.trim())
+      } catch {
+        return fail("Paste the full callback URL from the browser's address bar.")
+      }
+      if (url.protocol !== target.protocol || url.hostname !== target.hostname || url.port !== target.port || url.pathname !== target.pathname || url.username || url.password || url.hash) {
+        return fail("This callback URL isn't from this Devin sign-in; start it again.")
+      }
+      const params = url.searchParams
+      if (params.getAll("state").length !== 1 || params.get("state") !== state) return fail("This callback URL isn't from this Devin sign-in; start it again.")
+      if (params.has("error")) {
+        if (pending) return fail("This Devin sign-in has already been submitted.")
+        return (finished = fail("Devin didn't finish this sign-in; start it again."))
+      }
+      const code = params.get("code")
+      if (params.getAll("code").length !== 1 || !code?.trim()) return fail("The Devin callback URL has no sign-in code; start it again.")
+      if (pending) return code === submitted ? pending : fail("This Devin sign-in has already been submitted.")
+      submitted = code
+      // Assign one shared promise before redeeming; concurrent/repeated
+      // callbacks cannot trade the same single-use code more than once.
+      pending = Promise.resolve().then(async () => {
+        try {
+          const x = await redeem(code, verifier, redirect)
+          return (finished = await identify(x.key, SERVER))
+        } catch {
+          // Neither a vendor response nor an exception is safe to echo:
+          // either can contain the pasted code, state or session token.
+          return (finished = fail("Devin couldn't complete this sign-in; start it again."))
+        }
+      })
+      return pending
+    },
+  }
+}
+
 // browserSignIn is `devin auth login`'s round, run by the plugin: PKCE
 // through app.devin.ai, back to a callback on 127.0.0.1.
 async function browserSignIn() {
@@ -1213,6 +1282,7 @@ export async function DevinAuthPlugin() {
         }
       },
       methods: [
+        { type: "oauth", label: "Devin (remote/Docker: paste callback URL)", authorize: pasteSignIn },
         { type: "oauth", label: "Devin (browser)", authorize: browserSignIn },
         { type: "oauth", label: "Devin CLI's sign-in", authorize: cliSignIn },
       ],
@@ -1251,4 +1321,4 @@ export async function DevinAuthPlugin() {
 }
 
 // for tests
-export const _internal = { seesImages, forgetImages: () => (seen = null), effortOf, runtimeModel, configModel, live, build, failure, complete, parseFamilies, listed, variantFor, familiesOf, SNAPSHOT, parseStatus, readCredentials, credentials, fields, frame, PB, events, frames }
+export const _internal = { seesImages, forgetImages: () => (seen = null), effortOf, runtimeModel, configModel, live, build, failure, complete, parseFamilies, listed, variantFor, familiesOf, SNAPSHOT, parseStatus, readCredentials, credentials, fields, frame, PB, events, frames, pasteSignIn }

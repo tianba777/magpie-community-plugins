@@ -4,10 +4,41 @@ Signs in to a [Devin](https://devin.ai) subscription, the account the
 `devin` CLI uses, and makes its requests, in OpenCode and in magpie.
 Provider id: `devin`.
 
+## Magpie Docker sign-in fork
+
+Version `0.1.6-fork.1` adds a remote sign-in method for browsers running on
+a different computer from Magpie. It keeps the upstream inference,
+credential format and provider ID `devin`, so existing plugin accounts
+remain compatible. The npm package name is unchanged.
+
+Choose **Devin (remote/Docker: paste callback URL)** in Magpie. Open the
+authorization link and sign in on Devin's website. The browser's final
+`http://127.0.0.1:<port>/callback?...` page may show a connection error;
+copy its complete address and paste it into Magpie's waiting input.
+Do not remove its `code` or `state`, or reuse an address from an older
+sign-in attempt. The authorization attempt expires after ten minutes.
+
+The plugin validates the callback against that attempt and exchanges the
+code directly with Devin's fixed API endpoint. It does not visit the
+pasted URL, open a network listener, or require a new Docker port. Existing
+local browser and CLI sign-in methods remain available.
+
+On October 2, 2026, a user completed authorization through the new method
+and Magpie saved one account. Its separate account proxy used a Nikki
+Taiwan route; country.is reported TW and Nikki observed `server.codeium.com`
+through the Taiwan node. A real `devin-plugin/swe-2` request returned
+HTTP 200, model `swe-2` and text `OK`. After a container restart, the sign-in
+and proxy remained in place and the same request succeeded again.
+
+The source is on the fork's `devin-docker-signin` branch; use the absolute
+`packages/devin` directory with `magpie plugin add`. For an existing npm
+installation, first add the local fork, then remove that exact npm registration;
+leave the Factory plugin and all account data in place.
+
 ## Signing in
 
-An account is the CLI's session token (`devin-session-token$…`). There are
-two ways to get one:
+An account is the CLI's session token (`devin-session-token$…`). The fork
+offers the remote method above in addition to these original methods:
 
 - **Devin (browser)**: the CLI's own `devin auth login`, run by the
   plugin. It is a PKCE sign-in through `app.devin.ai/auth/cli/continue`
@@ -16,7 +47,8 @@ two ways to get one:
 - **Devin CLI's sign-in**: takes the account the CLI is signed in to, from
   its `credentials.toml` (`$XDG_DATA_HOME/devin/`, by default
   `~/.local/share/devin/`; `%APPDATA%\devin\` on Windows). The file is only
-  read, never changed.
+  read, never changed. In Docker this means the CLI credential file inside
+  the container, not a sign-in file on the browser's computer.
 
 When the CLI is installed, the plugin names the account with
 `devin auth status` (its email and tier). The CLI runs with a data folder
