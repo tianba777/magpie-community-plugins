@@ -1,26 +1,31 @@
-# Factory 插件在 Magpie 中的验证 — 2026-10-02
+# Magpie Factory multi-agent 插件验证 — 2026-10-02
 
-**按用户报告实现请求整形后，Magpie 的两个池子都已成功返回生成内容。**
-本次测试 31 条模型路由全部 HTTP 200；三种 API 的真实 SSE 工具调用均通过。
+**当前目标版本 `0.1.5-fork.3` 保留 Factory 身份前缀和三种 API 格式适配，
+移除两条客户端特征串替换；普通消息和工具返回文本保留原文。`.3` 的独立验证结果见下方。**
+下文记录 `.2` 的历史验证：31 条模型路由全部 HTTP 200，三种 API 的真实
+SSE 工具调用均通过。这些结果不能直接作为 `.3` 的实测证据。
 
 范围为 Magpie 的 Factory 插件。上游基线是
 `magpie-community/plugins@bd5e91ee00cd02d1f4293df2d95af1ceb303ecba`，
-当前 fork 版本为 `0.1.5-fork.2`。本节记录独立环境验证；后续生产换装另行
-记录在用户的部署目录，未发布 npm 包。
+当前文档目标版本为 `0.1.5-fork.3`。npm 包名
+`@magpie-community/opencode-factory-auth` 暂时保留，用于匹配 Magpie 官方迁移；
+使用目标为多个 agent 共用的 Magpie 网关，不限定客户端。
+历史 `.2` 独立环境验证如下；后续生产换装另行记录在用户的部署目录，未发布 npm 包。
 
-## 核心补丁
+## 当前 `.3` 补丁
 
-在 Magpie 使用的 `auth.loader.fetch` 层实现报告的三种请求整形：
+在 Magpie 使用的 `auth.loader.fetch` 层保留三种 API 的请求格式适配：
 
 - 三种 API 的系统提示以精确的
   `You are Droid, an AI software engineering agent built by Factory.` 开头。
-- 报告列出的两条特征串仅改标点，覆盖消息字符串和文本块。
 - Anthropic 保留 `cache_control` 和块结构；Responses 将文本 instructions
   转成字符串；Chat 合并 system/developer 文本并放在首条字符串 system 消息。
 
-上述整形会改变提示词文本及 Chat 系统指令的位置，不再宣称全部请求字节原样转发。
-工具参数及 schema、工具 ID、图片/base64、thinking/signature、Responses 的
-function-call output 保持原状；只处理三个 Factory LLM JSON 路径，未知路径和
+`.3` 移除 `.2` 中的两条字符串标点替换，不按客户端名称或模型描述改写普通消息。
+普通消息、工具返回文本、工具参数及 schema、工具 ID、图片/base64、
+thinking/signature、Responses 的 function-call output 保持原状。
+身份前缀、指令文本容器和 Chat 系统指令位置仍会改变，因此不宣称全部请求字节原样转发。
+只处理三个 Factory LLM JSON 路径，未知路径和
 无效 JSON 透传。重复整形不重复添加身份句。未知非文本 instructions 保守透传，
 Chat 含非文本块的指令消息保留，避免丢失内容。
 
@@ -28,7 +33,33 @@ Chat 含非文本块的指令消息保留，避免丢失内容。
 二进制 view 偏移、即时 SSE 转发。整形后删除旧 Content-Length，让 fetch 重算长度。
 账号认证、刷新流程、区域/模型路由和客户端版本号保持上游行为。
 
-## 离线验证
+## 当前 `.3` 离线验证
+
+- `bun test packages/factory`：**51 pass，0 fail，192 assertions**。
+- `bun scripts/check.mjs`：**11 个包通过**。
+
+验证三种 API 的系统指令适配，同时逐字段检查普通消息、工具结果、图片、
+工具参数与签名内容保留。旧的两条完整特征串也保留原样，不再替换标点。
+`check-factory-magpie-agents.mjs` 使用代表性 agent 提示词测试三个 API；
+这不等于运行 Hermes、Claude Code 或其他 agent 客户端完整流程。
+
+## 当前 `.3` 生产验证
+
+已在现有 Magpie v0.1.604 网关换装 `.3`，保留正式迁移后的 `factory/<model>`
+前缀、唯一账号、调用密钥、31 个显式模型选择、账号级台湾代理和原配置。
+
+- 三组代表性提示词（Hermes、Claude Code、自定义 WorkflowAgent）分别走
+  Messages、Responses、Chat：**9/9 返回 200 和精确标记**。
+- 三种 API 的真实流式 `echo` 工具调用：**3/3 参数正确并正常结束**。
+- 重启后 `.3` 仍生效，31 个模型选择保留，Haiku、GPT-6.1 Sol、DeepSeek 再次
+  生成 `OK`，原配置和调用密钥保持一致。
+- 原台湾出口为 TW，其他 8 个容器状态与本次基线一致。
+
+脱敏证据：[factory-magpie-multiagent-live-20261002.json](factory-magpie-multiagent-live-20261002.json)。
+这是模拟提示词兼容性验证，未运行各 agent 客户端的完整工作流；本次 `.3`
+没有重测全部 31 条路由，`.2` 的完整扫描仍仅代表历史 `.2`。
+
+## 历史 `.2` 离线验证
 
 - `bun test packages/factory`：**49 pass，0 fail，189 assertions**。
 - `bun scripts/check.mjs`：**11 个包通过**。
@@ -36,12 +67,14 @@ Chat 含非文本块的指令消息保留，避免丢失内容。
 原有 16 项测试保留；整形用例验证三种 API 的格式、精确前缀、幂等、单对象
 文本块、未知输入透传。请求用例用独立手写的 expected JSON 验证修改后的实际内容，
 并覆盖工具/图片/签名保留、取消、二进制偏移、请求长度与即时 SSE。
+这些统计属于 `.2`，当前 `.3` 的结果另列于上方。
 
-## Magpie Docker 真实调用
+## 历史 `.2` Magpie Docker 真实调用
 
 使用与生产相同的 **Magpie v0.1.604** 镜像，创建独立容器、配置目录和调用密钥。
 通过 `/magpie plugin add /test-plugin` 安装 fork，确认已登录且识别 31 个模型，
-再显式选中全部 31 个。测试容器中的 `index.mjs` hash 与本 fork 一致，记录在结果 JSON。
+再显式选中全部 31 个。测试容器中的 `index.mjs` hash 与当时 `.2` 的源码一致，
+记录在结果 JSON；该 hash 不代表后续 `.3` 源码。
 
 只复制同一现有账号尚未过期的 access token，不复制或使用 refresh token。
 全部请求经过实际 Magpie 网关，使用 `factory-plugin/<model>`，未调用内置
@@ -96,6 +129,7 @@ M2.7 本身可调用；尚未确定是 Factory 的别名、替换还是返回元
 
 fork 位于 [tianba777/magpie-community-plugins 的 factory-transport-models 分支](https://github.com/tianba777/magpie-community-plugins/tree/factory-transport-models)。
 Magpie 使用本地包目录；Docker 需挂载该目录并使用容器内路径。
+新建独立插件登录时使用以下步骤：
 
 ```sh
 git clone --branch factory-transport-models https://github.com/tianba777/magpie-community-plugins.git
@@ -107,6 +141,9 @@ magpie plugin login factory
 无需重新登录；客户端继续使用 `factory/<model>`。回滚命令为
 `magpie plugin move-back factory`，会带回插件持有的最新凭据。
 没有迁移的并存插件使用 `factory-plugin/<model>`。
+多个 agent 按各自支持的 API 使用同一 Magpie 网关及 caller key，
+请求路径为 `/v1/messages`、`/v1/responses` 或 `/v1/chat/completions`；
+agent 无需持有 Factory 的登录凭据。
 
 Magpie v0.1.604 在未显式选择时，较长列表默认展示前 24 个模型。
 `magpie provider models factory-plugin all` 会清空显式选择并回到默认行为，

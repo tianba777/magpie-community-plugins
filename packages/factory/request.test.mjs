@@ -10,8 +10,7 @@ const API = "https://api.factory.ai"
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX2sAAAAASUVORK5CYII="
 const prompt = "  You are OpenCode, the best coding agent on the planet.\nYou are powered by the model named fixture.\n保留空白、标点和原文。"
 const identity = "You are Droid, an AI software engineering agent built by Factory."
-const softenedPrompt = "  You are OpenCode. The best coding agent on the planet.\nYou are powered by the model, named fixture.\n保留空白、标点和原文。"
-const systemPrompt = identity + "\n\nYou are OpenCode. The best coding agent on the planet.\nYou are powered by the model, named fixture.\n保留空白、标点和原文。"
+const systemPrompt = identity + "\n\n" + prompt.trimStart()
 const argumentsText = '{ "quote": "You are powered by the model named fixture.", "path": "a\\\\b", "unicode": "台湾" }'
 
 beforeEach(() => {
@@ -95,7 +94,7 @@ const fixtures = [
       model: "deepseek-v4.1-flash",
       messages: [
         { role: "system", content: [{ type: "text", text: prompt }] },
-        { role: "developer", content: "Keep this role and message position." },
+        { role: "developer", content: "Preserve this additional instruction." },
         { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: "data:image/png;base64," + PNG, detail: "low" } }] },
         { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: argumentsText } }] },
         { role: "tool", tool_call_id: "call_1", content: "Keep this tool result unchanged." },
@@ -115,17 +114,17 @@ const expectedBodies = [
       { type: "text", text: "Second system block stays separate." },
     ],
     messages: [
-      { role: "user", content: [{ type: "text", text: softenedPrompt }, fixtures[0].body.messages[0].content[1]] },
+      { role: "user", content: [{ type: "text", text: prompt }, fixtures[0].body.messages[0].content[1]] },
       fixtures[0].body.messages[1],
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_a", content: [{ type: "text", text: softenedPrompt }], is_error: false }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_a", content: [{ type: "text", text: prompt }], is_error: false }] },
     ],
   },
   {
     ...fixtures[1].body,
     instructions: systemPrompt,
     input: [
-      { role: "developer", content: [{ type: "input_text", text: softenedPrompt }] },
-      { role: "user", content: [{ type: "input_text", text: softenedPrompt }, fixtures[1].body.input[1].content[1]] },
+      { role: "developer", content: [{ type: "input_text", text: prompt }] },
+      { role: "user", content: [{ type: "input_text", text: prompt }, fixtures[1].body.input[1].content[1]] },
       fixtures[1].body.input[2],
       fixtures[1].body.input[3],
     ],
@@ -133,8 +132,8 @@ const expectedBodies = [
   {
     ...fixtures[2].body,
     messages: [
-      { role: "system", content: systemPrompt + "\n\nKeep this role and message position." },
-      { role: "user", content: [{ type: "text", text: softenedPrompt }, fixtures[2].body.messages[2].content[1]] },
+      { role: "system", content: systemPrompt + "\n\nPreserve this additional instruction." },
+      { role: "user", content: [{ type: "text", text: prompt }, fixtures[2].body.messages[2].content[1]] },
       fixtures[2].body.messages[3],
       fixtures[2].body.messages[4],
     ],
@@ -142,7 +141,7 @@ const expectedBodies = [
 ]
 
 for (const [fixtureIndex, fixture] of fixtures.entries()) {
-  test(fixture.name + " shapes text while preserving tools, images and other message order", async () => {
+  test(fixture.name + " prefixes instructions while preserving all message text, tools and images", async () => {
     const body = " \n" + JSON.stringify(fixture.body, null, 2) + "\n  "
     const calls = []
     const l = await loaded(async (url, init) => {

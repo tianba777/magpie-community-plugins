@@ -1,4 +1,4 @@
-// Factory (Droid) subscriptions for OpenCode and magpie: WorkOS's device
+// Factory (Droid) subscriptions for the Magpie gateway: WorkOS's device
 // flow under droid's client, as `droid` signs in, and each model request
 // sent to Factory's API with the headers droid sends. Ported from magpie's
 // built-in Factory account (internal/provider/factory*.go).
@@ -456,17 +456,8 @@ function limitWindows(l) {
 
 const DROID_IDENTITY = "You are Droid, an AI software engineering agent built by Factory."
 
-// Match only the two complete phrases from the compatibility report. Text
-// in tool arguments, schemas, images and signed reasoning is never visited.
-function soften(text) {
-  if (typeof text !== "string") return text
-  return text
-    .replace(/You are powered by the model named/g, "You are powered by the model, named")
-    .replace(/You are OpenCode, the best coding agent on the planet\./g, "You are OpenCode. The best coding agent on the planet.")
-}
-
 function withIdentity(text) {
-  const rest = soften(String(text ?? "")).replace(/^\s+/, "")
+  const rest = String(text ?? "").replace(/^\s+/, "")
   if (rest.startsWith(DROID_IDENTITY)) return rest
   return rest ? `${DROID_IDENTITY}\n\n${rest}` : DROID_IDENTITY
 }
@@ -474,37 +465,6 @@ function withIdentity(text) {
 function textPart(part) {
   return part && typeof part === "object" && typeof part.text === "string" &&
     (part.type === undefined || ["text", "input_text", "output_text"].includes(part.type))
-}
-
-// A content value may be a string, an array, or one text block. Only known
-// text blocks and Anthropic tool-result content contain prose to soften.
-function softenParts(parts) {
-  if (typeof parts === "string") return soften(parts)
-  if (Array.isArray(parts)) return parts.map(softenParts)
-  if (textPart(parts)) return { ...parts, text: soften(parts.text) }
-  if (parts && typeof parts === "object" && parts.type === "tool_result" && "content" in parts) {
-    return { ...parts, content: softenParts(parts.content) }
-  }
-  return parts
-}
-
-function softenMessage(message) {
-  if (!message || typeof message !== "object" || !("content" in message)) return message
-  return { ...message, content: softenParts(message.content) }
-}
-
-function softenInput(input) {
-  if (typeof input === "string") return soften(input)
-  if (!Array.isArray(input)) return input
-  return input.map((item) => {
-    if (item && typeof item === "object" &&
-      (item.type === "message" || (item.type === undefined && typeof item.role === "string"))) {
-      return softenMessage(item)
-    }
-    // Responses function_call/function_call_output and reasoning items are
-    // opaque; in particular, arguments, output, call_id and signatures stay.
-    return softenParts(item)
-  })
 }
 
 // Flatten instruction prose without coercing an opaque block into text.
@@ -543,7 +503,7 @@ function shapeBody(url, body) {
   }
 
   if (path === "/api/llm/a/v1/messages") {
-    const system = softenParts(data.system)
+    const system = data.system
     if (typeof system === "string") data.system = withIdentity(system)
     else if (textPart(system)) data.system = [{ ...system, text: withIdentity(system.text) }]
     else {
@@ -553,12 +513,10 @@ function shapeBody(url, body) {
       else blocks.unshift({ type: "text", text: DROID_IDENTITY })
       data.system = blocks
     }
-    if (Array.isArray(data.messages)) data.messages = data.messages.map(softenMessage)
   } else if (path === "/api/llm/o/v1/responses") {
     const instructions = textParts(data.instructions)
     if (instructions === undefined) return body
     data.instructions = withIdentity(instructions)
-    data.input = softenInput(data.input)
   } else {
     const instructions = [], messages = []
     let first
@@ -570,7 +528,7 @@ function shapeBody(url, body) {
       } else {
         // Keep an unknown/non-text system shape intact rather than discard
         // images or opaque fields while merging ordinary instruction text.
-        messages.push(softenMessage(message))
+        messages.push(message)
       }
     }
     data.messages = [{ ...first, role: "system", content: withIdentity(instructions.join("\n\n")) }, ...messages]
@@ -851,4 +809,4 @@ export const FactoryAuthPlugin = async ({ client }) => {
 }
 
 // for tests
-export const _internal = { limitWindows, windowEnd, dollars, vendorError, CORE, DROID_IDENTITY, soften, withIdentity, softenParts, softenInput, shapeBody }
+export const _internal = { limitWindows, windowEnd, dollars, vendorError, CORE, DROID_IDENTITY, withIdentity, shapeBody }

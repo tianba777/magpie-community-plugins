@@ -1,5 +1,5 @@
-// Offline request-shaping contracts. These tests do not prove that Factory
-// accepts the request; no account or remote service is contacted.
+// Offline generic-agent request contracts: only the system format and
+// Factory identity prefix change. No account or remote service is contacted.
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { _internal } from "./index.mjs"
 
@@ -11,8 +11,6 @@ const CHAT = "/api/llm/o/v1/chat/completions"
 const IDENTITY = "You are Droid, an AI software engineering agent built by Factory."
 const OPEN_CODE = "You are OpenCode, the best coding agent on the planet."
 const POWERED = "You are powered by the model named fixture."
-const SOFT_OPEN_CODE = "You are OpenCode. The best coding agent on the planet."
-const SOFT_POWERED = "You are powered by the model, named fixture."
 
 beforeEach(() => {
   globalThis.fetch = async () => { throw new Error("Gate unit tests must not access the network") }
@@ -23,21 +21,21 @@ function shaped(path, body) {
   return JSON.parse(_internal.shapeBody(API + path, JSON.stringify(body)))
 }
 
-test("Anthropic string system gets the exact identity and only the two phrase substitutions", () => {
+test("Anthropic string system keeps the agent's original wording after the exact identity", () => {
   expect(shaped(MESSAGES, {
     model: "claude-sonnet-4-6",
     system: " \n" + OPEN_CODE + "\n" + POWERED,
-    messages: [{ role: "user", content: "OpenCode / opencode / You are OpenCode. / you are powered by the model named x." }],
+    messages: [{ role: "user", content: "  " + OPEN_CODE + "\n" + POWERED }],
     max_tokens: 128,
   })).toEqual({
     model: "claude-sonnet-4-6",
-    system: IDENTITY + "\n\n" + SOFT_OPEN_CODE + "\n" + SOFT_POWERED,
-    messages: [{ role: "user", content: "OpenCode / opencode / You are OpenCode. / you are powered by the model named x." }],
+    system: IDENTITY + "\n\n" + OPEN_CODE + "\n" + POWERED,
+    messages: [{ role: "user", content: "  " + OPEN_CODE + "\n" + POWERED }],
     max_tokens: 128,
   })
 })
 
-test("Anthropic block system preserves cache metadata and softens later single text objects", () => {
+test("Anthropic preserves cache metadata, later system blocks and ordinary text objects", () => {
   const cache = { type: "ephemeral", ttl: "1h" }
   expect(shaped(MESSAGES, {
     model: "claude-sonnet-4-6",
@@ -50,9 +48,9 @@ test("Anthropic block system preserves cache metadata and softens later single t
     model: "claude-sonnet-4-6",
     system: [
       { type: "text", text: IDENTITY + "\n\nFirst instruction.", cache_control: cache },
-      { type: "text", text: SOFT_OPEN_CODE + " " + SOFT_POWERED, cache_control: { type: "ephemeral" } },
+      { type: "text", text: OPEN_CODE + " " + POWERED, cache_control: { type: "ephemeral" } },
     ],
-    messages: [{ role: "user", content: { type: "text", text: SOFT_OPEN_CODE + " " + SOFT_POWERED, cache_control: cache } }],
+    messages: [{ role: "user", content: { type: "text", text: OPEN_CODE + " " + POWERED, cache_control: cache } }],
   })
 })
 
@@ -61,19 +59,19 @@ test("Anthropic single-object system normalizes to a block array without losing 
     system: { type: "text", text: POWERED, cache_control: { type: "ephemeral", ttl: "5m" } },
     messages: [],
   })).toEqual({
-    system: [{ type: "text", text: IDENTITY + "\n\n" + SOFT_POWERED, cache_control: { type: "ephemeral", ttl: "5m" } }],
+    system: [{ type: "text", text: IDENTITY + "\n\n" + POWERED, cache_control: { type: "ephemeral", ttl: "5m" } }],
     messages: [],
   })
 })
 
-test("Responses string instructions and string input get independent shaping", () => {
+test("Responses prefixes instructions while preserving string input exactly", () => {
   expect(shaped(RESPONSES, {
     model: "gpt-6.1-sol", instructions: " " + POWERED,
     input: "  " + OPEN_CODE + "\n" + POWERED,
     reasoning: { effort: "low" }, stream: true,
   })).toEqual({
-    model: "gpt-6.1-sol", instructions: IDENTITY + "\n\n" + SOFT_POWERED,
-    input: "  " + SOFT_OPEN_CODE + "\n" + SOFT_POWERED,
+    model: "gpt-6.1-sol", instructions: IDENTITY + "\n\n" + POWERED,
+    input: "  " + OPEN_CODE + "\n" + POWERED,
     reasoning: { effort: "low" }, stream: true,
   })
 })
@@ -89,15 +87,17 @@ test("Responses instruction arrays flatten their text in order and retain input 
       { role: "user", content: [{ type: "input_text", text: POWERED }, image] },
       { type: "function_call", id: "fc_original", call_id: "call_original", name: "lookup", arguments: argumentsText },
       { type: "function_call_output", call_id: "call_original", output: POWERED },
+      { role: "assistant", content: [{ type: "output_text", text: OPEN_CODE + " " + POWERED }] },
     ],
   })).toEqual({
-    instructions: IDENTITY + "\n\nFirst.\n\n" + SOFT_POWERED,
+    instructions: IDENTITY + "\n\nFirst.\n\n" + POWERED,
     previous_response_id: "resp_previous",
     input: [
-      { type: "message", role: "developer", content: { type: "input_text", text: SOFT_OPEN_CODE } },
-      { role: "user", content: [{ type: "input_text", text: SOFT_POWERED }, image] },
+      { type: "message", role: "developer", content: { type: "input_text", text: OPEN_CODE } },
+      { role: "user", content: [{ type: "input_text", text: POWERED }, image] },
       { type: "function_call", id: "fc_original", call_id: "call_original", name: "lookup", arguments: argumentsText },
       { type: "function_call_output", call_id: "call_original", output: POWERED },
+      { role: "assistant", content: [{ type: "output_text", text: OPEN_CODE + " " + POWERED }] },
     ],
   })
 })
@@ -109,22 +109,24 @@ test("Chat merges interleaved system and developer content into the first string
       { role: "user", content: "First user stays first among ordinary messages." },
       { role: "developer", content: POWERED },
       { role: "system", content: [{ type: "text", text: "System A." }, { type: "text", text: OPEN_CODE }] },
-      { role: "assistant", content: "Assistant stays after first user." },
+      { role: "assistant", content: OPEN_CODE + "\n" + POWERED },
       { role: "developer", content: { type: "text", text: "Developer B." } },
       { role: "user", content: { type: "text", text: POWERED } },
+      { role: "tool", tool_call_id: "call_original", content: OPEN_CODE + " " + POWERED },
     ],
   })).toEqual({
     model: "deepseek-v4.1-flash",
     messages: [
-      { role: "system", content: IDENTITY + "\n\n" + SOFT_POWERED + "\n\nSystem A.\n\n" + SOFT_OPEN_CODE + "\n\nDeveloper B." },
+      { role: "system", content: IDENTITY + "\n\n" + POWERED + "\n\nSystem A.\n\n" + OPEN_CODE + "\n\nDeveloper B." },
       { role: "user", content: "First user stays first among ordinary messages." },
-      { role: "assistant", content: "Assistant stays after first user." },
-      { role: "user", content: { type: "text", text: SOFT_POWERED } },
+      { role: "assistant", content: OPEN_CODE + "\n" + POWERED },
+      { role: "user", content: { type: "text", text: POWERED } },
+      { role: "tool", tool_call_id: "call_original", content: OPEN_CODE + " " + POWERED },
     ],
   })
 })
 
-test("tool arguments, IDs, schemas, images, thinking and signatures are not phrase-rewritten", () => {
+test("all message text, tool results, arguments, schemas, images and signed reasoning stay unchanged", () => {
   const image = { type: "image", source: { type: "base64", media_type: "image/png", data: OPEN_CODE }, cache_control: { type: "ephemeral" } }
   const assistant = {
     role: "assistant",
@@ -132,6 +134,7 @@ test("tool arguments, IDs, schemas, images, thinking and signatures are not phra
       { type: "thinking", thinking: OPEN_CODE, signature: POWERED },
       { type: "redacted_thinking", data: POWERED },
       { type: "tool_use", id: "tool_original", name: "lookup", input: { text: OPEN_CODE, nested: { text: POWERED } } },
+      { type: "text", text: "  " + OPEN_CODE + "\n" + POWERED },
     ],
   }
   const tools = [{ name: "lookup", description: OPEN_CODE, input_schema: { type: "object", properties: { text: { type: "string", enum: [POWERED] } } } }]
@@ -141,13 +144,15 @@ test("tool arguments, IDs, schemas, images, thinking and signatures are not phra
       { role: "user", content: [{ type: "text", text: OPEN_CODE }, image] },
       assistant,
       { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_original", content: { type: "text", text: POWERED }, is_error: false }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_original", content: "  " + OPEN_CODE + "\n" + POWERED }] },
     ],
   })).toEqual({
     system: IDENTITY + "\n\nKeep constraints.", tools, thinking: { type: "enabled", budget_tokens: 2048 },
     messages: [
-      { role: "user", content: [{ type: "text", text: SOFT_OPEN_CODE }, image] },
+      { role: "user", content: [{ type: "text", text: OPEN_CODE }, image] },
       assistant,
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_original", content: { type: "text", text: SOFT_POWERED }, is_error: false }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_original", content: { type: "text", text: POWERED }, is_error: false }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_original", content: "  " + OPEN_CODE + "\n" + POWERED }] },
     ],
   })
 })
@@ -161,7 +166,7 @@ for (const [name, path, body] of [
     const once = _internal.shapeBody(API + path, JSON.stringify(body))
     const parsed = JSON.parse(once)
     const system = path === MESSAGES ? parsed.system : path === RESPONSES ? parsed.instructions : parsed.messages[0].content
-    expect(system).toBe(IDENTITY + "\n" + SOFT_OPEN_CODE)
+    expect(system).toBe(IDENTITY + "\n" + OPEN_CODE)
     expect(system.split(IDENTITY)).toHaveLength(2)
     expect(_internal.shapeBody(API + path, once)).toBe(once)
   })
@@ -190,4 +195,24 @@ test("unknown content block types keep their text and nested payload verbatim", 
   expect(shaped(MESSAGES, { system: "Instruction.", messages: [{ role: "user", content: [unknown] }] })).toEqual({
     system: IDENTITY + "\n\nInstruction.", messages: [{ role: "user", content: [unknown] }],
   })
+})
+
+test("Chat merges only pure text instructions and retains non-text system content intact", () => {
+  const image = { type: "image_url", image_url: { url: "data:image/png;base64," + POWERED } }
+  const mixed = { role: "system", content: [{ type: "text", text: OPEN_CODE }, image] }
+  const user = { role: "user", content: "  " + OPEN_CODE + "\n" + POWERED }
+  const raw = JSON.stringify({ messages: [mixed, { role: "developer", content: POWERED }, user] })
+  const once = _internal.shapeBody(API + CHAT, raw)
+  expect(JSON.parse(once)).toEqual({
+    messages: [{ role: "system", content: IDENTITY + "\n\n" + POWERED }, mixed, user],
+  })
+  expect(_internal.shapeBody(API + CHAT, once)).toBe(once)
+})
+
+test("opaque Responses instructions pass the whole body through without touching input", () => {
+  const raw = JSON.stringify({
+    instructions: [{ type: "vendor_opaque", text: OPEN_CODE, signature: POWERED }],
+    input: "  " + OPEN_CODE + "\n" + POWERED,
+  })
+  expect(_internal.shapeBody(API + RESPONSES, raw)).toBe(raw)
 })

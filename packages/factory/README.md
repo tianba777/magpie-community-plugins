@@ -1,31 +1,46 @@
-# @magpie-community/opencode-factory-auth
+# Magpie Factory multi-agent plugin
 
-Signs in to a [Factory](https://factory.ai) (Droid) subscription and sends
-model requests to Factory's API the way `droid` sends them. Provider id:
-`factory`.
+A [Factory](https://factory.ai) (Droid) subscription backend for a Magpie
+gateway shared by multiple agents. Clients use Magpie's Messages,
+Responses or Chat Completions API with their gateway caller key.
+The npm package name `@magpie-community/opencode-factory-auth` is retained
+for Magpie's official migration matching; it does not limit the gateway
+to a particular agent client. Provider id after migration: `factory`.
 
 ## This fork
 
-Version `0.1.5-fork.2` implements the supplied compatibility report at the
+Version `0.1.5-fork.3` retains Factory request-format adaptation at the
 `auth.loader.fetch` layer, which Magpie uses for all three model APIs:
 
 - Prefix Anthropic system text, Responses instructions, and the first Chat
   system message with `You are Droid, an AI software engineering agent built by Factory.`
-- Apply the report's two exact phrase substitutions to message text.
 - Keep Anthropic text blocks and their cache controls; convert Responses
   instructions to a string; merge Chat system/developer prose into the
   first string system message.
 
-These changes modify prompt text and Chat instruction placement. Tool
-arguments and schemas, images, IDs, signed reasoning and response streams
-are preserved. Shaping is idempotent and limited to the three Factory LLM
-paths; invalid JSON and unknown paths pass through unchanged.
+The two phrase substitutions used in `.2` are removed in `.3`. Ordinary
+message text and tool-result text are preserved, including client names
+and model descriptions. The identity prefix and instruction-format
+adaptation still change system/instructions containers and Chat instruction
+placement. Tool arguments and schemas, images, IDs, signed reasoning and
+response streams are preserved. Shaping is idempotent and limited to the
+three Factory LLM paths; invalid JSON and unknown paths pass through unchanged.
 
 The fork also adds GPT-6.1 Sol, corrects model limits, carries cancellation
 signals, handles binary-view offsets and removes stale Content-Length
-headers after reshaping. **49 offline tests and all 11 package checks pass.**
+headers after reshaping. **Version `.3`: 51 offline tests and all 11 package
+checks pass.** A production Magpie v0.1.604 gateway using the Taiwan proxy
+passed nine representative agent-prompt checks (three prompts × three native
+APIs) and three SSE tool checks. A restart preserved all 31 selected models;
+Haiku, GPT-6.1 Sol and DeepSeek generated content again.
 
-On October 2, 2026, an isolated **Magpie v0.1.604 Docker gateway** with a
+These are simulated agent prompts, not full agent-client workflows; `.3`
+has not repeated the entire 31-route sweep. See the
+[current .3 gateway results](../../docs/factory-magpie-multiagent-live-20261002.json).
+The broader route sweep below belongs to historical `.2`.
+
+For `.2`, 49 offline tests and all 11 package checks passed. On October 2,
+2026, an isolated **Magpie v0.1.604 Docker gateway** with a
 Taiwan Nikki proxy returned **200 and generated content on all 31 routes**
 (21 Standard, 10 Droid Core). Native SSE tool calls passed for Anthropic,
 Responses and Chat. A container restart restored all models; three probes
@@ -38,8 +53,8 @@ does not verify M2.7 itself. All returned model names are recorded.
 The earlier `.1` test lacked request shaping and received 403; it could
 not establish whether the report's method works. See the
 [verification report](../../docs/factory-verification-20261002.md),
-[current gateway results](../../docs/factory-magpie-shaped-live-20261002.json),
-[SSE tool results](../../docs/factory-magpie-stream-tools-20261002.json), and
+[historical .2 gateway results](../../docs/factory-magpie-shaped-live-20261002.json),
+[historical .2 SSE tool results](../../docs/factory-magpie-stream-tools-20261002.json), and
 [pre-shaping baseline](../../docs/factory-magpie-live-20261002.json).
 
 This fork has not been published to npm. To load this checkout in Magpie,
@@ -62,10 +77,8 @@ backend and keeps the original `factory/<model>` client prefix.
 
 ## Where the sign-in is kept
 
-The sign-in is kept wherever the host keeps provider sign-ins:
-
-- OpenCode: `~/.local/share/opencode/auth.json`
-- magpie: `plugin-auth.json`
+Magpie keeps the plugin sign-in in `plugin-auth.json`. Agent clients use
+Magpie caller keys; they do not need the Factory sign-in tokens.
 
 It holds WorkOS's access and refresh tokens, with the organization,
 region and host.
@@ -97,6 +110,8 @@ The list is not included:
 
 ## Use this fork in Magpie
 
+For a new, separate plugin sign-in:
+
 ```sh
 git clone --branch factory-transport-models https://github.com/tianba777/magpie-community-plugins.git
 magpie plugin add "$PWD/magpie-community-plugins/packages/factory"
@@ -112,8 +127,20 @@ and preserves the `factory/<model>` prefix. The inverse command is
 the built-in backend.
 
 An unmigrated, separate plugin installation uses `factory-plugin/<model>`.
+Multiple agents can use the same Magpie gateway through `/v1/messages`,
+`/v1/responses` or `/v1/chat/completions`, with the selected provider prefix.
 Set `MAGPIE_TEST_PROVIDER=factory` for both gateway check scripts after
 migration; their default `factory-plugin` is for a separate installation.
 Select explicit model IDs to expose all models: Magpie's default list is
 limited to 24, and `provider models ... all` restores that default rather
 than exposing 31.
+
+To check representative multi-agent prompts through an existing gateway:
+
+```sh
+MAGPIE_TEST_PROVIDER=factory bun scripts/check-factory-magpie-agents.mjs
+```
+
+Set `MAGPIE_TEST_URL` and `MAGPIE_TEST_KEY` in the environment first. The checker
+can save safe results with `MAGPIE_TEST_AGENTS_RESULT`; it does not launch agent
+clients or read their credentials.

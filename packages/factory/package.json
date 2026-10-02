@@ -1,10 +1,10 @@
 {
   "name": "@magpie-community/opencode-factory-auth",
-  "version": "0.1.5-fork.2",
-  "description": "Sign in to a Factory (Droid) subscription from OpenCode or magpie",
+  "version": "0.1.5-fork.3",
+  "description": "Factory subscription provider for the Magpie multi-agent API gateway",
   "type": "module",
   "main": "./index.mjs",
   "files": ["index.mjs", "README.md"],
-  "keywords": ["opencode", "opencode-plugin", "magpie", "factory", "droid"],
+  "keywords": ["magpie", "factory", "droid", "agents", "api-gateway"],
   "license": "MIT"
 }

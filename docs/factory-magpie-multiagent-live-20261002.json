@@ -1,0 +1,252 @@
+{
+  "timestamp": "2026-10-02T08:24:11.048835+00:00",
+  "magpie_version": "v0.1.604",
+  "plugin_version": "0.1.5-fork.3",
+  "plugin_sha256": "358e6f5119301147007d79e38535cdfbfdbf642541404bf35aab791e8a1daae4",
+  "removed_phrase_rewrites": true,
+  "ordinary_text_preserved": true,
+  "factory_identity_and_instruction_format_retained": true,
+  "provider": "factory",
+  "catalog_models": 31,
+  "agent_prompt_checks": {
+    "timestamp": "2026-10-02T08:24:02.836Z",
+    "provider": "factory",
+    "scope": "Representative prompts across three native gateway APIs; full agent clients are not tested.",
+    "checked": 9,
+    "usable": 9,
+    "exact_markers": 9,
+    "results": [
+      {
+        "agent_prompt": "Hermes",
+        "model": "factory/claude-haiku-4-5-20251001",
+        "api": "/v1/messages",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "claude-haiku-4-5-20251001",
+        "generated_text": "magpie-agent-Hermes",
+        "duration_ms": 1817,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "Hermes",
+        "model": "factory/gpt-6.1-sol",
+        "api": "/v1/responses",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "gpt-6.1-sol",
+        "generated_text": "magpie-agent-Hermes",
+        "duration_ms": 3054,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "Hermes",
+        "model": "factory/deepseek-v4.1-flash",
+        "api": "/v1/chat/completions",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "generated_text": "magpie-agent-Hermes",
+        "duration_ms": 3616,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "Claude Code",
+        "model": "factory/claude-haiku-4-5-20251001",
+        "api": "/v1/messages",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "claude-haiku-4-5-20251001",
+        "generated_text": "magpie-agent-Claude-Code",
+        "duration_ms": 1667,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "Claude Code",
+        "model": "factory/gpt-6.1-sol",
+        "api": "/v1/responses",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "gpt-6.1-sol",
+        "generated_text": "magpie-agent-Claude-Code",
+        "duration_ms": 3711,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "Claude Code",
+        "model": "factory/deepseek-v4.1-flash",
+        "api": "/v1/chat/completions",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "generated_text": "magpie-agent-Claude-Code",
+        "duration_ms": 2637,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "WorkflowAgent",
+        "model": "factory/claude-haiku-4-5-20251001",
+        "api": "/v1/messages",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "claude-haiku-4-5-20251001",
+        "generated_text": "magpie-agent-WorkflowAgent",
+        "duration_ms": 1385,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "WorkflowAgent",
+        "model": "factory/gpt-6.1-sol",
+        "api": "/v1/responses",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "gpt-6.1-sol",
+        "generated_text": "magpie-agent-WorkflowAgent",
+        "duration_ms": 3435,
+        "error_type": null
+      },
+      {
+        "agent_prompt": "WorkflowAgent",
+        "model": "factory/deepseek-v4.1-flash",
+        "api": "/v1/chat/completions",
+        "status": 200,
+        "usable": true,
+        "exact_marker": true,
+        "returned_model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "generated_text": "magpie-agent-WorkflowAgent",
+        "duration_ms": 2608,
+        "error_type": null
+      }
+    ]
+  },
+  "stream_tools": {
+    "timestamp": "2026-10-02T08:24:10.474Z",
+    "route": "Magpie gateway -> Factory plugin -> Factory API",
+    "stream": true,
+    "max_output_tokens": 2048,
+    "timeout_ms": 45000,
+    "checked": 3,
+    "usable": 3,
+    "results": [
+      {
+        "model": "factory/claude-haiku-4-5-20251001",
+        "api": "/v1/messages",
+        "status": 200,
+        "duration_ms": 1591,
+        "event_count": 11,
+        "tool_count": 1,
+        "tool_name_valid": true,
+        "tool_arguments_valid": true,
+        "completed": true,
+        "server_error": false,
+        "error": null,
+        "usable": true
+      },
+      {
+        "model": "factory/gpt-6.1-sol",
+        "api": "/v1/responses",
+        "status": 200,
+        "duration_ms": 2755,
+        "event_count": 13,
+        "tool_count": 1,
+        "tool_name_valid": true,
+        "tool_arguments_valid": true,
+        "completed": true,
+        "server_error": false,
+        "error": null,
+        "usable": true
+      },
+      {
+        "model": "factory/deepseek-v4.1-flash",
+        "api": "/v1/chat/completions",
+        "status": 200,
+        "duration_ms": 3261,
+        "event_count": 31,
+        "tool_count": 1,
+        "tool_name_valid": true,
+        "tool_arguments_valid": true,
+        "completed": true,
+        "server_error": false,
+        "error": null,
+        "usable": true
+      }
+    ]
+  },
+  "proxy_country": "TW",
+  "boundary": "Representative agent prompts were tested across three APIs; full agent clients and all 31 routes were not retested for .3.",
+  "restart_verification": {
+    "timestamp": "2026-10-02T08:25:14.781681+00:00",
+    "passed": true,
+    "catalog_models": 31,
+    "plugin_version": "0.1.5-fork.3",
+    "inference": {
+      "timestamp": "2026-10-02T08:25:14.198Z",
+      "provider": "factory",
+      "route": "Magpie gateway -> installed Factory plugin -> Factory API",
+      "input": "Reply exactly OK.",
+      "max_output_tokens": 128,
+      "stream": false,
+      "model_count": 3,
+      "listed_count": 3,
+      "usable_count": 3,
+      "results": [
+        {
+          "model": "factory/claude-haiku-4-5-20251001",
+          "pool": "Standard",
+          "api": "/v1/messages",
+          "listed": true,
+          "status": 200,
+          "duration_ms": 1873,
+          "usable": true,
+          "returned_model": "claude-haiku-4-5-20251001",
+          "generated_characters": 2,
+          "generated_text": "OK",
+          "error_type": null
+        },
+        {
+          "model": "factory/gpt-6.1-sol",
+          "pool": "Standard",
+          "api": "/v1/responses",
+          "listed": true,
+          "status": 200,
+          "duration_ms": 2548,
+          "usable": true,
+          "returned_model": "gpt-6.1-sol",
+          "generated_characters": 2,
+          "generated_text": "OK",
+          "error_type": null
+        },
+        {
+          "model": "factory/deepseek-v4.1-flash",
+          "pool": "Droid Core",
+          "api": "/v1/chat/completions",
+          "listed": true,
+          "status": 200,
+          "duration_ms": 2138,
+          "usable": true,
+          "returned_model": "accounts/fireworks/models/deepseek-v4p1-flash",
+          "generated_characters": 2,
+          "generated_text": "OK",
+          "error_type": null
+        }
+      ]
+    },
+    "configuration_and_caller_keys_preserved": true,
+    "account_proxy_preserved": true,
+    "same_container_and_image": true,
+    "other_containers_unchanged": true
+  },
+  "offline_verification": {
+    "tests_passed": 51,
+    "tests_failed": 0,
+    "assertions": 192,
+    "package_checks_passed": 11
+  }
+}
