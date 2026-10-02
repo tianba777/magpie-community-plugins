@@ -5,7 +5,8 @@
 
 范围为 Magpie 的 Factory 插件。上游基线是
 `magpie-community/plugins@bd5e91ee00cd02d1f4293df2d95af1ceb303ecba`，
-当前 fork 版本为 `0.1.5-fork.2`。未部署到现有生产服务，未发布 npm 包。
+当前 fork 版本为 `0.1.5-fork.2`。本节记录独立环境验证；后续生产换装另行
+记录在用户的部署目录，未发布 npm 包。
 
 ## 核心补丁
 
@@ -102,6 +103,11 @@ magpie plugin add "$PWD/magpie-community-plugins/packages/factory"
 magpie plugin login factory
 ```
 
+已有内置 Factory 账号时，安装后用 `magpie plugin move factory` 正式迁移，
+无需重新登录；客户端继续使用 `factory/<model>`。回滚命令为
+`magpie plugin move-back factory`，会带回插件持有的最新凭据。
+没有迁移的并存插件使用 `factory-plugin/<model>`。
+
 Magpie v0.1.604 在未显式选择时，较长列表默认展示前 24 个模型。
 `magpie provider models factory-plugin all` 会清空显式选择并回到默认行为，
 测试全部 31 个需要指定明确的模型 ID 列表。
@@ -122,3 +128,4 @@ bun scripts/check-factory-magpie.mjs
 `usable` 表示路由返回内容，不保证返回模型名等于请求名，应同时检查 `returned_model`。
 流式工具检查脚本为 [check-factory-magpie-tools.mjs](../scripts/check-factory-magpie-tools.mjs)，
 使用相同网关 URL 和调用密钥，可用 `MAGPIE_TEST_TOOLS_RESULT` 保存结果。
+正式迁移后的两个脚本均设置 `MAGPIE_TEST_PROVIDER=factory`。

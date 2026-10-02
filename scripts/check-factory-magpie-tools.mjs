@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises"
 
 const base = process.env.MAGPIE_TEST_URL?.replace(/\/+$/, "")
 const key = process.env.MAGPIE_TEST_KEY
+const provider = process.env.MAGPIE_TEST_PROVIDER || "factory-plugin"
 if (!base || !key) throw new Error("Set MAGPIE_TEST_URL and MAGPIE_TEST_KEY")
 let endpoint
 try { endpoint = new URL(base) } catch { throw new Error("Invalid Magpie gateway URL") }
@@ -18,7 +19,7 @@ const prompt = "Call the echo tool exactly once with value equal to magpie-check
 const description = "Echo the supplied value."
 const cases = [
   {
-    model: "factory-plugin/claude-haiku-4-5-20251001", api: "/v1/messages", kind: "anthropic",
+    model: `${provider}/claude-haiku-4-5-20251001`, api: "/v1/messages", kind: "anthropic",
     body: {
       messages: [{ role: "user", content: prompt }], max_tokens: 2048,
       tools: [{ name: "echo", description, input_schema: parameters }],
@@ -26,7 +27,7 @@ const cases = [
     },
   },
   {
-    model: "factory-plugin/gpt-6.1-sol", api: "/v1/responses", kind: "responses",
+    model: `${provider}/gpt-6.1-sol`, api: "/v1/responses", kind: "responses",
     body: {
       input: prompt, max_output_tokens: 2048, reasoning: { effort: "low" },
       tools: [{ type: "function", name: "echo", description, parameters, strict: true }],
@@ -34,7 +35,7 @@ const cases = [
     },
   },
   {
-    model: "factory-plugin/deepseek-v4.1-flash", api: "/v1/chat/completions", kind: "chat",
+    model: `${provider}/deepseek-v4.1-flash`, api: "/v1/chat/completions", kind: "chat",
     body: {
       messages: [{ role: "user", content: prompt }], max_tokens: 2048,
       tools: [{ type: "function", function: { name: "echo", description, parameters } }],

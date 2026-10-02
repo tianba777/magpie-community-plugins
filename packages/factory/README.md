@@ -44,9 +44,10 @@ not establish whether the report's method works. See the
 
 This fork has not been published to npm. To load this checkout in Magpie,
 use the absolute path to `packages/factory` with `magpie plugin add`; in
-Docker, mount the directory and use its container path. With built-in
-Factory present, the plugin provider is `factory-plugin`; its sign-in hook
-still uses `factory`.
+Docker, mount the directory and use its container path. Before migration,
+the plugin coexists with built-in Factory as `factory-plugin`; its sign-in
+hook uses `factory`. `magpie plugin move factory` replaces the built-in
+backend and keeps the original `factory/<model>` client prefix.
 
 ## Sign-in
 
@@ -103,8 +104,16 @@ magpie plugin login factory
 ```
 
 For Docker, mount the cloned package into the container and pass its
-container path to `magpie plugin add`. Client requests use
-`factory-plugin/<model>` when the built-in Factory provider is present.
-The plugin sign-in is independent of the built-in account. Select explicit
-model IDs to expose all models: Magpie's default list is limited to 24, and
-`provider models ... all` restores that default rather than exposing 31.
+container path to `magpie plugin add`. To replace an existing built-in
+Factory account, use `magpie plugin move factory` after adding this package,
+instead of a new plugin login. Magpie transfers the account to the plugin
+and preserves the `factory/<model>` prefix. The inverse command is
+`magpie plugin move-back factory`, which returns the latest credentials to
+the built-in backend.
+
+An unmigrated, separate plugin installation uses `factory-plugin/<model>`.
+Set `MAGPIE_TEST_PROVIDER=factory` for both gateway check scripts after
+migration; their default `factory-plugin` is for a separate installation.
+Select explicit model IDs to expose all models: Magpie's default list is
+limited to 24, and `provider models ... all` restores that default rather
+than exposing 31.
