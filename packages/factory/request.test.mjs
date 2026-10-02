@@ -1,5 +1,5 @@
-// The auth fetch wrapper must preserve the caller's request, cancellation,
-// and response stream. All upstreams below are local fetch mocks: no account
+// The auth fetch wrapper shapes only the documented text fields and preserves
+// cancellation and response streams. All upstreams below are local fetch mocks: no account
 // or Factory service is contacted.
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { FactoryAuthPlugin } from "./index.mjs"
@@ -9,6 +9,9 @@ const encoder = new TextEncoder()
 const API = "https://api.factory.ai"
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aX2sAAAAASUVORK5CYII="
 const prompt = "  You are OpenCode, the best coding agent on the planet.\nYou are powered by the model named fixture.\n保留空白、标点和原文。"
+const identity = "You are Droid, an AI software engineering agent built by Factory."
+const softenedPrompt = "  You are OpenCode. The best coding agent on the planet.\nYou are powered by the model, named fixture.\n保留空白、标点和原文。"
+const systemPrompt = identity + "\n\nYou are OpenCode. The best coding agent on the planet.\nYou are powered by the model, named fixture.\n保留空白、标点和原文。"
 const argumentsText = '{ "quote": "You are powered by the model named fixture.", "path": "a\\\\b", "unicode": "台湾" }'
 
 beforeEach(() => {
@@ -95,15 +98,51 @@ const fixtures = [
         { role: "developer", content: "Keep this role and message position." },
         { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: "data:image/png;base64," + PNG, detail: "low" } }] },
         { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "lookup", arguments: argumentsText } }] },
-        { role: "tool", tool_call_id: "call_1", content: prompt },
+        { role: "tool", tool_call_id: "call_1", content: "Keep this tool result unchanged." },
       ],
       tools: [{ type: "function", function: { name: "lookup", description: prompt, parameters: { type: "object", properties: { quote: { type: "string" } } } } }],
     },
   },
 ]
 
-for (const fixture of fixtures) {
-  test(fixture.name + " preserves body bytes, prompts, tools, images and message order", async () => {
+// These expectations are written independently of shapeBody. Structured fields
+// come from the original fixture so any alteration to their values fails the comparison.
+const expectedBodies = [
+  {
+    ...fixtures[0].body,
+    system: [
+      { type: "text", text: systemPrompt, cache_control: { type: "ephemeral", ttl: "5m" } },
+      { type: "text", text: "Second system block stays separate." },
+    ],
+    messages: [
+      { role: "user", content: [{ type: "text", text: softenedPrompt }, fixtures[0].body.messages[0].content[1]] },
+      fixtures[0].body.messages[1],
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_a", content: [{ type: "text", text: softenedPrompt }], is_error: false }] },
+    ],
+  },
+  {
+    ...fixtures[1].body,
+    instructions: systemPrompt,
+    input: [
+      { role: "developer", content: [{ type: "input_text", text: softenedPrompt }] },
+      { role: "user", content: [{ type: "input_text", text: softenedPrompt }, fixtures[1].body.input[1].content[1]] },
+      fixtures[1].body.input[2],
+      fixtures[1].body.input[3],
+    ],
+  },
+  {
+    ...fixtures[2].body,
+    messages: [
+      { role: "system", content: systemPrompt + "\n\nKeep this role and message position." },
+      { role: "user", content: [{ type: "text", text: softenedPrompt }, fixtures[2].body.messages[2].content[1]] },
+      fixtures[2].body.messages[3],
+      fixtures[2].body.messages[4],
+    ],
+  },
+]
+
+for (const [fixtureIndex, fixture] of fixtures.entries()) {
+  test(fixture.name + " shapes text while preserving tools, images and other message order", async () => {
     const body = " \n" + JSON.stringify(fixture.body, null, 2) + "\n  "
     const calls = []
     const l = await loaded(async (url, init) => {
@@ -112,7 +151,7 @@ for (const fixture of fixtures) {
     })
     const url = API + fixture.path
     let input = url
-    let init = { method: "POST", headers: { "Content-Type": "application/json" }, body }
+    let init = { method: "POST", headers: { "Content-Type": "application/json", "Content-Length": String(encoder.encode(body).byteLength) }, body }
     if (fixture.name === "Responses") {
       // A typed-array subview must not leak the bytes around its range.
       const padded = encoder.encode("prefix" + body + "suffix")
@@ -126,15 +165,17 @@ for (const fixture of fixtures) {
     expect(calls).toHaveLength(1)
     expect(calls[0].url.pathname).toBe(fixture.path)
     expect(calls[0].init.method).toBe("POST")
-    expect(calls[0].body).toEqual(encoder.encode(body))
+    expect(JSON.parse(new TextDecoder().decode(calls[0].body))).toEqual(expectedBodies[fixtureIndex])
     const h = new Headers(calls[0].init.headers)
     expect(h.get("x-api-provider")).toBe(fixture.upstream)
     expect(h.get("Authorization")).toBe("Bearer request-test-access")
     expect(h.get("Content-Type")).toBe("application/json")
+    const length = h.get("Content-Length")
+    expect(length === null || Number(length) === calls[0].body.byteLength).toBe(true)
   })
 }
 
-test("a streamed request body preserves fragmented UTF-8 bytes", async () => {
+test("a streamed request body decodes fragmented UTF-8 before shaping", async () => {
   const body = encoder.encode(JSON.stringify(fixtures[0].body))
   const split = body.indexOf(0xe4) + 1
   const streamed = new ReadableStream({
@@ -150,11 +191,11 @@ test("a streamed request body preserves fragmented UTF-8 bytes", async () => {
     return new Response("{}")
   })
   await l.fetch(API + fixtures[0].path, { method: "POST", body: streamed })
-  expect(sent).toEqual(body)
+  expect(JSON.parse(new TextDecoder().decode(sent))).toEqual(expectedBodies[0])
 })
 
 for (const View of [DataView, Uint16Array]) {
-  test(View.name + " preserves body bytes and routes MiniMax M2.7 to Fireworks", async () => {
+  test(View.name + " decodes only view bytes, shapes text and routes MiniMax M2.7 to Fireworks", async () => {
     let raw = JSON.stringify({
       model: "minimax-m2.7",
       max_tokens: 64,
@@ -177,7 +218,12 @@ for (const View of [DataView, Uint16Array]) {
       return new Response("{}")
     })
     expect((await l.fetch(API + fixtures[0].path, { method: "POST", body })).status).toBe(200)
-    expect(sent.body).toEqual(original)
+    expect(JSON.parse(new TextDecoder().decode(sent.body))).toEqual({
+      model: "minimax-m2.7",
+      max_tokens: 64,
+      system: systemPrompt,
+      messages: [{ role: "user", content: "Keep this message unchanged." }],
+    })
     expect(sent.url.pathname).toBe(fixtures[0].path)
     expect(sent.headers.get("x-api-provider")).toBe("fireworks")
   })

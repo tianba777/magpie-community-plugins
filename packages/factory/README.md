@@ -6,26 +6,47 @@ model requests to Factory's API the way `droid` sends them. Provider id:
 
 ## This fork
 
-Version `0.1.5-fork.1` adds GPT-6.1 Sol, corrects Haiku's missing limits
-and the full context windows of Opus/Sonnet 5.5, and preserves Request
-cancellation and binary-view model routing. Request bodies, instructions,
-tools and image content remain unchanged.
+Version `0.1.5-fork.2` implements the supplied compatibility report at the
+`auth.loader.fetch` layer, which Magpie uses for all three model APIs:
 
-This fork was tested as a **Magpie plugin** on October 2, 2026. An isolated
-Magpie v0.1.604 Docker container loaded the package and signed-in account;
-all 31 models were selected explicitly and called through its gateway as
-`factory-plugin/<model>`. The tested account received **403 on all 31**:
-21 Standard and 10 Droid Core models, with no generated text. Nikki
-confirmed the requests used the Taiwan proxy. Loading successfully and
-passing offline tests do not establish usable inference.
+- Prefix Anthropic system text, Responses instructions, and the first Chat
+  system message with `You are Droid, an AI software engineering agent built by Factory.`
+- Apply the report's two exact phrase substitutions to message text.
+- Keep Anthropic text blocks and their cache controls; convert Responses
+  instructions to a string; merge Chat system/developer prose into the
+  first string system message.
 
-See the [Magpie verification report](../../docs/factory-verification-20261002.md)
-and [redacted gateway results](../../docs/factory-magpie-live-20261002.json).
-The fork version has not been published to npm. To load this checkout in
-Magpie, use the absolute path to `packages/factory` with `magpie plugin add`;
-in Docker, mount that directory and use its container path. With the
-built-in Factory provider present, Magpie registers the plugin as
-`factory-plugin`. The sign-in hook still uses `factory`.
+These changes modify prompt text and Chat instruction placement. Tool
+arguments and schemas, images, IDs, signed reasoning and response streams
+are preserved. Shaping is idempotent and limited to the three Factory LLM
+paths; invalid JSON and unknown paths pass through unchanged.
+
+The fork also adds GPT-6.1 Sol, corrects model limits, carries cancellation
+signals, handles binary-view offsets and removes stale Content-Length
+headers after reshaping. **49 offline tests and all 11 package checks pass.**
+
+On October 2, 2026, an isolated **Magpie v0.1.604 Docker gateway** with a
+Taiwan Nikki proxy returned **200 and generated content on all 31 routes**
+(21 Standard, 10 Droid Core). Native SSE tool calls passed for Anthropic,
+Responses and Chat. A container restart restored all models; three probes
+with the earlier baseline's 128-token cap also returned content.
+
+Model-return caveat: a `minimax-m2.7` request returned
+`accounts/fireworks/models/minimax-m3`. That route worked, but the response
+does not verify M2.7 itself. All returned model names are recorded.
+
+The earlier `.1` test lacked request shaping and received 403; it could
+not establish whether the report's method works. See the
+[verification report](../../docs/factory-verification-20261002.md),
+[current gateway results](../../docs/factory-magpie-shaped-live-20261002.json),
+[SSE tool results](../../docs/factory-magpie-stream-tools-20261002.json), and
+[pre-shaping baseline](../../docs/factory-magpie-live-20261002.json).
+
+This fork has not been published to npm. To load this checkout in Magpie,
+use the absolute path to `packages/factory` with `magpie plugin add`; in
+Docker, mount the directory and use its container path. With built-in
+Factory present, the plugin provider is `factory-plugin`; its sign-in hook
+still uses `factory`.
 
 ## Sign-in
 
@@ -73,9 +94,17 @@ The list is not included:
 - Gemini, which Factory sends on a route of its own.
 - auto, which droid picks on the client side.
 
-## Use
+## Use this fork in Magpie
 
 ```sh
-magpie plugin add @magpie-community/opencode-factory-auth
+git clone --branch factory-transport-models https://github.com/tianba777/magpie-community-plugins.git
+magpie plugin add "$PWD/magpie-community-plugins/packages/factory"
 magpie plugin login factory
 ```
+
+For Docker, mount the cloned package into the container and pass its
+container path to `magpie plugin add`. Client requests use
+`factory-plugin/<model>` when the built-in Factory provider is present.
+The plugin sign-in is independent of the built-in account. Select explicit
+model IDs to expose all models: Magpie's default list is limited to 24, and
+`provider models ... all` restores that default rather than exposing 31.

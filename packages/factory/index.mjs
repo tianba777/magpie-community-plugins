@@ -454,12 +454,134 @@ function limitWindows(l) {
 
 // ---- the plugin ---------------------------------------------------------------
 
+const DROID_IDENTITY = "You are Droid, an AI software engineering agent built by Factory."
+
+// Match only the two complete phrases from the compatibility report. Text
+// in tool arguments, schemas, images and signed reasoning is never visited.
+function soften(text) {
+  if (typeof text !== "string") return text
+  return text
+    .replace(/You are powered by the model named/g, "You are powered by the model, named")
+    .replace(/You are OpenCode, the best coding agent on the planet\./g, "You are OpenCode. The best coding agent on the planet.")
+}
+
+function withIdentity(text) {
+  const rest = soften(String(text ?? "")).replace(/^\s+/, "")
+  if (rest.startsWith(DROID_IDENTITY)) return rest
+  return rest ? `${DROID_IDENTITY}\n\n${rest}` : DROID_IDENTITY
+}
+
+function textPart(part) {
+  return part && typeof part === "object" && typeof part.text === "string" &&
+    (part.type === undefined || ["text", "input_text", "output_text"].includes(part.type))
+}
+
+// A content value may be a string, an array, or one text block. Only known
+// text blocks and Anthropic tool-result content contain prose to soften.
+function softenParts(parts) {
+  if (typeof parts === "string") return soften(parts)
+  if (Array.isArray(parts)) return parts.map(softenParts)
+  if (textPart(parts)) return { ...parts, text: soften(parts.text) }
+  if (parts && typeof parts === "object" && parts.type === "tool_result" && "content" in parts) {
+    return { ...parts, content: softenParts(parts.content) }
+  }
+  return parts
+}
+
+function softenMessage(message) {
+  if (!message || typeof message !== "object" || !("content" in message)) return message
+  return { ...message, content: softenParts(message.content) }
+}
+
+function softenInput(input) {
+  if (typeof input === "string") return soften(input)
+  if (!Array.isArray(input)) return input
+  return input.map((item) => {
+    if (item && typeof item === "object" &&
+      (item.type === "message" || (item.type === undefined && typeof item.role === "string"))) {
+      return softenMessage(item)
+    }
+    // Responses function_call/function_call_output and reasoning items are
+    // opaque; in particular, arguments, output, call_id and signatures stay.
+    return softenParts(item)
+  })
+}
+
+// Flatten instruction prose without coercing an opaque block into text.
+// undefined means the shape is unknown, and should be preserved.
+function textParts(value) {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (textPart(value)) return value.text
+  if (Array.isArray(value)) {
+    const texts = value.map(textParts)
+    return texts.some((text) => text === undefined) ? undefined : texts.join("\n\n")
+  }
+  if (value && typeof value === "object" &&
+    (value.type === "message" || (value.type === undefined && typeof value.role === "string"))) {
+    return textParts(value.content)
+  }
+  return undefined
+}
+
+function bodyText(body) {
+  if (typeof body === "string") return body
+  if (body instanceof ArrayBuffer) return Buffer.from(body).toString("utf8")
+  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("utf8")
+  return undefined
+}
+
+function shapeBody(url, body) {
+  let path, data
+  try {
+    path = new URL(url instanceof Request ? url.url : String(url)).pathname
+    if (!["/api/llm/a/v1/messages", "/api/llm/o/v1/responses", "/api/llm/o/v1/chat/completions"].includes(path)) return body
+    data = JSON.parse(bodyText(body))
+    if (!data || typeof data !== "object" || Array.isArray(data)) return body
+  } catch {
+    return body
+  }
+
+  if (path === "/api/llm/a/v1/messages") {
+    const system = softenParts(data.system)
+    if (typeof system === "string") data.system = withIdentity(system)
+    else if (textPart(system)) data.system = [{ ...system, text: withIdentity(system.text) }]
+    else {
+      const blocks = Array.isArray(system) ? system : system == null ? [] : [system]
+      if (textPart(blocks[0])) blocks[0] = { ...blocks[0], text: withIdentity(blocks[0].text) }
+      else if (typeof blocks[0] === "string") blocks[0] = { type: "text", text: withIdentity(blocks[0]) }
+      else blocks.unshift({ type: "text", text: DROID_IDENTITY })
+      data.system = blocks
+    }
+    if (Array.isArray(data.messages)) data.messages = data.messages.map(softenMessage)
+  } else if (path === "/api/llm/o/v1/responses") {
+    const instructions = textParts(data.instructions)
+    if (instructions === undefined) return body
+    data.instructions = withIdentity(instructions)
+    data.input = softenInput(data.input)
+  } else {
+    const instructions = [], messages = []
+    let first
+    for (const message of Array.isArray(data.messages) ? data.messages : []) {
+      const text = ["system", "developer"].includes(message?.role) ? textParts(message.content) : undefined
+      if (text !== undefined) {
+        first ??= message
+        instructions.push(text)
+      } else {
+        // Keep an unknown/non-text system shape intact rather than discard
+        // images or opaque fields while merging ordinary instruction text.
+        messages.push(softenMessage(message))
+      }
+    }
+    data.messages = [{ ...first, role: "system", content: withIdentity(instructions.join("\n\n")) }, ...messages]
+  }
+  return JSON.stringify(data)
+}
+
 function bodyModel(body) {
   try {
     if (body == null) return ""
-    const s = typeof body === "string" ? body : body instanceof ArrayBuffer ? Buffer.from(body).toString("utf8")
-      : ArrayBuffer.isView(body) ? Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("utf8") : ""
-    return JSON.parse(s)?.model ?? ""
+    return JSON.parse(bodyText(body))?.model ?? ""
   } catch {
     return ""
   }
@@ -686,6 +808,14 @@ export const FactoryAuthPlugin = async ({ client }) => {
             if (body instanceof ReadableStream) body = new Uint8Array(await new Response(body).arrayBuffer())
             signal?.throwIfAborted()
             const url = input instanceof Request ? input.url : String(input)
+            const shaped = shapeBody(url, body)
+            if (shaped !== body) {
+              body = shaped
+              // A Request or caller may have supplied the old UTF-8 byte
+              // length. Let fetch calculate it for the shaped JSON instead.
+              options.headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+              options.headers.delete("Content-Length")
+            }
             // the built-in takes an account's lapse off when it renews the
             // token, whatever the request then meets, and never for an
             // answer: a 401 of Factory's leaves it be, and so does a success
@@ -721,4 +851,4 @@ export const FactoryAuthPlugin = async ({ client }) => {
 }
 
 // for tests
-export const _internal = { limitWindows, windowEnd, dollars, vendorError, CORE }
+export const _internal = { limitWindows, windowEnd, dollars, vendorError, CORE, DROID_IDENTITY, soften, withIdentity, softenParts, softenInput, shapeBody }

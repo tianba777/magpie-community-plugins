@@ -6,10 +6,13 @@ import { FactoryAuthPlugin, _internal } from "../packages/factory/index.mjs"
 const base = process.env.MAGPIE_TEST_URL?.replace(/\/+$/, "")
 const key = process.env.MAGPIE_TEST_KEY
 const provider = process.env.MAGPIE_TEST_PROVIDER || "factory-plugin"
+const maxOutputTokens = Number(process.env.MAGPIE_TEST_MAX_OUTPUT_TOKENS || 128)
+const selected = process.env.MAGPIE_TEST_MODELS?.split(",").map((id) => id.trim()).filter(Boolean)
 if (!base || !key) {
   throw new Error("Set MAGPIE_TEST_URL and MAGPIE_TEST_KEY for an isolated Magpie gateway")
 }
 if (!["http:", "https:"].includes(new URL(base).protocol)) throw new Error("Expected an HTTP(S) gateway")
+if (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 8192) throw new Error("Output cap must be an integer from 1 to 8192")
 
 const config = {}
 const plugin = await FactoryAuthPlugin({ client: { auth: { set() { throw new Error("No auth writes in the gateway checker") } } } })
@@ -29,17 +32,18 @@ const textOf = (body) => {
 }
 const results = []
 for (const [id, metadata] of Object.entries(config.provider.factory.models)) {
+  if (selected && !selected.includes(id)) continue
   const model = `${provider}/${id}`
   const api = metadata.provider.npm === "@ai-sdk/anthropic" ? "/v1/messages"
     : metadata.provider.npm === "@ai-sdk/openai" ? "/v1/responses" : "/v1/chat/completions"
   const request = { model, stream: false }
   if (api === "/v1/responses") {
     request.input = "Reply exactly OK."
-    request.max_output_tokens = 128
+    request.max_output_tokens = maxOutputTokens
     request.reasoning = { effort: Object.keys(metadata.variants)[0] }
   } else {
     request.messages = [{ role: "user", content: "Reply exactly OK." }]
-    request.max_tokens = 128
+    request.max_tokens = maxOutputTokens
   }
   const started = performance.now()
   let status = 0, response = null, transportError = null
@@ -58,6 +62,7 @@ for (const [id, metadata] of Object.entries(config.provider.factory.models)) {
     usable: status >= 200 && status < 300 && generated.trim().length > 0,
     returned_model: response?.model ?? null,
     generated_characters: generated.length,
+    generated_text: generated.slice(0, 160),
     error_type: response?.error?.type ?? transportError,
   }
   results.push(result)
@@ -66,7 +71,7 @@ for (const [id, metadata] of Object.entries(config.provider.factory.models)) {
 const report = {
   timestamp: new Date().toISOString(), provider,
   route: "Magpie gateway -> installed Factory plugin -> Factory API",
-  input: "Reply exactly OK.", max_output_tokens: 128, stream: false,
+  input: "Reply exactly OK.", max_output_tokens: maxOutputTokens, stream: false,
   model_count: results.length,
   listed_count: results.filter((r) => r.listed).length,
   usable_count: results.filter((r) => r.usable).length,
@@ -74,4 +79,4 @@ const report = {
 }
 if (process.env.MAGPIE_TEST_RESULT) await writeFile(process.env.MAGPIE_TEST_RESULT, JSON.stringify(report, null, 2) + "\n")
 console.log(JSON.stringify({ checked: report.model_count, usable: report.usable_count }))
-if (report.usable_count !== report.model_count) process.exitCode = 1
+if (!report.model_count || report.usable_count !== report.model_count || (selected && report.model_count !== selected.length)) process.exitCode = 1

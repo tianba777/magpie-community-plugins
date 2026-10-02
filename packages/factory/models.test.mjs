@@ -1,4 +1,4 @@
-// Exercise the public config/auth hooks used by OpenCode and magpie.
+// Exercise the public config/auth hooks loaded by Magpie.
 // Token limits: https://platform.claude.com/docs/en/models/haiku-4-5/overview
 // GPT-6.1: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 // Factory IDs/efforts: https://docs.factory.com/models
@@ -55,7 +55,7 @@ test("explicit user model settings still override the catalog", async () => {
   expect(models["gpt-6.1-sol"].limit.context).toBe(1_050_000)
 })
 
-test("GPT-6.1 fetch signs the Responses route as OpenAI and preserves the submitted body", async () => {
+test("GPT-6.1 fetch signs Responses as OpenAI and adds instructions without changing input", async () => {
   const calls = []
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), headers: new Headers(init.headers), body: init.body })
@@ -92,5 +92,8 @@ test("GPT-6.1 fetch signs the Responses route as OpenAI and preserves the submit
   expect(calls[0].headers.get("x-api-provider")).toBe("openai")
   expect(calls[0].headers.get("Authorization")).toBe("Bearer offline-test-access")
   expect(calls[0].headers.get("x-api-key")).toBeNull()
-  expect(calls[0].body).toBe(body)
+  expect(JSON.parse(calls[0].body)).toEqual({
+    ...JSON.parse(body),
+    instructions: "You are Droid, an AI software engineering agent built by Factory.",
+  })
 })

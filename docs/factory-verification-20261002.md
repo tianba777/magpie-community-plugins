@@ -1,103 +1,124 @@
 # Factory 插件在 Magpie 中的验证 — 2026-10-02
 
-本次只验证 Magpie 的插件安装、模型配置和网关调用。上游基线是
+**按用户报告实现请求整形后，Magpie 的两个池子都已成功返回生成内容。**
+本次测试 31 条模型路由全部 HTTP 200；三种 API 的真实 SSE 工具调用均通过。
+
+范围为 Magpie 的 Factory 插件。上游基线是
 `magpie-community/plugins@bd5e91ee00cd02d1f4293df2d95af1ceb303ecba`，
-Factory 原包版本为 `0.1.4`，本 fork 为 `0.1.5-fork.1`。
+当前 fork 版本为 `0.1.5-fork.2`。未部署到现有生产服务，未发布 npm 包。
 
-结论：**插件成功加载，但当前测试账号的 31 个模型均被 Factory 返回
-403，未生成内容，尚未实现可用的模型调用。**
+## 核心补丁
 
-## 实际修改
+在 Magpie 使用的 `auth.loader.fetch` 层实现报告的三种请求整形：
 
-- 加入 `gpt-6.1-sol`，使用 Responses/OpenAI 路由，提供五档 reasoning
-  effort，以及 1,050,000 / 128,000 的 context / output。
-- 补齐 Haiku 4.5 的 200,000 / 64,000 限制；将 Opus 5.5、Sonnet 5.5
-  的 context 改为完整的 1,000,000，output 保持 128,000。
-- 保留 `Request.signal`，遵循显式 `init.signal` 覆盖（包括 `null`），
-  已取消的请求不会继续发送模型请求。
-- 用 `buffer / byteOffset / byteLength` 解析二进制 body view，修复
-  DataView、Uint16Array 的 MiniMax M2.7 路由误选 Anthropic 问题。
-- 增加通过 Magpie 网关运行的独立测试脚本；不直接调用插件的 fetch
-  hook 作为集成验证。
+- 三种 API 的系统提示以精确的
+  `You are Droid, an AI software engineering agent built by Factory.` 开头。
+- 报告列出的两条特征串仅改标点，覆盖消息字符串和文本块。
+- Anthropic 保留 `cache_control` 和块结构；Responses 将文本 instructions
+  转成字符串；Chat 合并 system/developer 文本并放在首条字符串 system 消息。
 
-保留原始请求内容、角色顺序、工具参数、图片及返回流；没有添加报告提出的
-身份替换或特征串改写。GPT-6 temperature 配置保持上游行为，本次不宣称修改了它。
+上述整形会改变提示词文本及 Chat 系统指令的位置，不再宣称全部请求字节原样转发。
+工具参数及 schema、工具 ID、图片/base64、thinking/signature、Responses 的
+function-call output 保持原状；只处理三个 Factory LLM JSON 路径，未知路径和
+无效 JSON 透传。重复整形不重复添加身份句。未知非文本 instructions 保守透传，
+Chat 含非文本块的指令消息保留，避免丢失内容。
 
-## 自动测试
+保留上一版的 GPT-6.1 Sol、Haiku 和 Opus/Sonnet 5.5 模型信息修复，以及取消信号、
+二进制 view 偏移、即时 SSE 转发。整形后删除旧 Content-Length，让 fetch 重算长度。
+账号认证、刷新流程、区域/模型路由和客户端版本号保持上游行为。
 
-`bun test packages/factory`：**36 pass，0 fail，138 assertions**。
-原有 16 项测试保持不变，新增 20 项验证模型配置、取消信号、二进制输入、
-请求内容保留及三种 API 的即时 SSE 转发。
+## 离线验证
 
-`bun scripts/check.mjs`：**11 个包通过**。该检查只证明 hook 和配置加载正常，
-不证明账号或模型可用。
+- `bun test packages/factory`：**49 pass，0 fail，189 assertions**。
+- `bun scripts/check.mjs`：**11 个包通过**。
 
-## Magpie Docker 集成与真实调用
+原有 16 项测试保留；整形用例验证三种 API 的格式、精确前缀、幂等、单对象
+文本块、未知输入透传。请求用例用独立手写的 expected JSON 验证修改后的实际内容，
+并覆盖工具/图片/签名保留、取消、二进制偏移、请求长度与即时 SSE。
 
-使用与现有服务相同的 Magpie **v0.1.604** 镜像，创建独立的测试容器和
-配置目录。通过 `/magpie plugin add /test-plugin` 安装本地 fork；实际输出
-`factory-plugin (Factory, 31 models) signed in as fork-test`。
-`/api/plugins`、`/api/providers` 和 `/v1/models` 的读取结果确认安装路径、
-插件提供者和模型目录。容器中的入口文件 SHA-256 与本 fork 一致，见结果 JSON。
+## Magpie Docker 真实调用
 
-测试目录只持有现有账号的 access token，不复制 refresh token，不执行刷新；
-核对账号记录确认 access token 在此次测试期间尚未到期。
-测试不使用内置 `factory/<model>` 路由，全部请求指定 `factory-plugin/<model>`。
-真实提示词为 `Reply exactly OK.`，输出上限 128，`stream: false`。
+使用与生产相同的 **Magpie v0.1.604** 镜像，创建独立容器、配置目录和调用密钥。
+通过 `/magpie plugin add /test-plugin` 安装 fork，确认已登录且识别 31 个模型，
+再显式选中全部 31 个。测试容器中的 `index.mjs` hash 与本 fork 一致，记录在结果 JSON。
 
-Nikki 的连接记录确认测试容器到 `api.factory.ai` 的请求经过
-`kiro-17-tw` 的台湾节点；出口地理查询为 TW。
+只复制同一现有账号尚未过期的 access token，不复制或使用 refresh token。
+全部请求经过实际 Magpie 网关，使用 `factory-plugin/<model>`，未调用内置
+`factory/<model>` 路由。真实提示词为 `Reply exactly OK.`，输出上限 2048，
+`stream: false`。Nikki 捕获测试容器到 `api.factory.ai` 经过台湾节点，出口地理查询为 TW。
 
-| Magpie API | 模型数 | 结果 |
+| 路径/池子 | 路由数 | 真实结果 |
 |---|---:|---|
-| `/v1/messages` | 10 | 10 × 403，`permission_error` |
-| `/v1/responses` | 12 | 12 × 403，`permission_error` |
-| `/v1/chat/completions` | 9 | 9 × 403，`permission_error` |
-| Standard 池 | 21 | 全部 403 |
-| Droid Core 池 | 10 | 全部 403 |
+| `/v1/messages` | 10 | 全部 200 且生成内容 |
+| `/v1/responses` | 12 | 全部 200 且生成内容 |
+| `/v1/chat/completions` | 9 | 全部 200 且生成内容 |
+| Standard | 21 | 全部返回内容 |
+| Droid Core | 10 | 全部返回内容 |
 
-逐模型结果、延迟、镜像版本、插件文件 hash 和路由证据保存在
-[factory-magpie-live-20261002.json](factory-magpie-live-20261002.json)。
-这些结果证明测试账号的上述请求遭到拒绝，不能确定具体原因是账号权限、
-组织策略、客户端限制或其他上游规则，也不能推及所有 Factory 账号。
-真实工具调用和生成内容的 SSE 尚未验证，因为没有成功的推理响应。
+逐路由结果含 HTTP 状态、实际返回模型名、输出文本、延迟、镜像、源码 hash 和代理证据：
+[factory-magpie-shaped-live-20261002.json](factory-magpie-shaped-live-20261002.json)。
 
-重启独立容器后，账号登录状态及全部 31 个模型恢复；再次调用 GPT-6.1 Sol
-仍收到 403。测试结束后删除临时容器、配置与临时凭据；现有生产容器、镜像、
-账号和服务配置保持原状。没有发布 npm 包或创建上游 PR。
+**模型名例外：请求 `minimax-m2.7` 时，返回的是
+`accounts/fireworks/models/minimax-m3`。** 该路由能生成内容，但不能据此证明
+M2.7 本身可调用；尚未确定是 Factory 的别名、替换还是返回元数据问题。
+其他路由也保留了原始返回名称，包括厂商命名空间及带日期的版本，便于核对。
 
-## 复测与模型选择
+### 流式工具调用
 
-Magpie v0.1.604 在未显式选择模型时，较长模型列表默认只展示前 24 个；
-本次测试显式选择了全部 31 个。`magpie provider models factory-plugin all`
-会清空显式选择并回到默认行为，应使用明确的模型 ID 列表；
-Web 的等价操作是 `POST /api/provider/save`，body 为
-`{"id":"factory-plugin","models":["模型ID", "另一个模型ID"]}`。
+为三种原生 API 分别请求一次 `stream: true`，强制调用 `echo` 工具，参数为
+`{"value":"magpie-check"}`。验证 SSE 增量形成完整工具参数、工具名正确、
+正常结束且无 SSE error；不是只检查 HTTP 200。
 
-将本地包目录通过 `magpie plugin add /绝对路径/packages/factory` 加载后，
-可复用 [check-factory-magpie.mjs](../scripts/check-factory-magpie.mjs)：
+| 代表模型 | API | SSE 事件数 | 工具参数/正常结束 |
+|---|---|---:|---|
+| Haiku 4.5 | Messages | 11 | 通过 |
+| GPT-6.1 Sol | Responses | 13 | 通过 |
+| DeepSeek V4.1 Flash | Chat | 30 | 通过 |
+
+详见 [factory-magpie-stream-tools-20261002.json](factory-magpie-stream-tools-20261002.json)。
+该检查验证工具调用生成与流式传输，不执行模型生成的工具，也不等同于完整多轮任务验收。
+
+### 重启、基线对照与清理
+
+重启独立容器后，全部 31 个模型恢复。用上一版基线相同的提示词及 **128 输出上限**
+再次请求 Haiku、GPT-6.1 Sol、DeepSeek，三者均返回 200 和内容，结果写入上述 JSON。
+
+上一版 `0.1.5-fork.1` **没有实现报告的核心请求整形**，31 个请求均为 403。
+不能用该结果否定报告方法；此前据此给出的不可用结论已纠正。
+基线保存在 [factory-magpie-live-20261002.json](factory-magpie-live-20261002.json)。
+
+测试结束后删除本次临时容器、配置和临时凭据。生产容器 ID、镜像及账号/设置文件
+校验值保持原状。结果仅证明本次账号、代理、Magpie 版本和时间下的上述调用，
+不保证未来上游规则或其他账号的表现。
+
+## 安装与复测
+
+fork 位于 [tianba777/magpie-community-plugins 的 factory-transport-models 分支](https://github.com/tianba777/magpie-community-plugins/tree/factory-transport-models)。
+Magpie 使用本地包目录；Docker 需挂载该目录并使用容器内路径。
 
 ```sh
-# MAGPIE_TEST_KEY 需已在环境中设置为测试网关的调用密钥。
+git clone --branch factory-transport-models https://github.com/tianba777/magpie-community-plugins.git
+magpie plugin add "$PWD/magpie-community-plugins/packages/factory"
+magpie plugin login factory
+```
+
+Magpie v0.1.604 在未显式选择时，较长列表默认展示前 24 个模型。
+`magpie provider models factory-plugin all` 会清空显式选择并回到默认行为，
+测试全部 31 个需要指定明确的模型 ID 列表。
+
+网关检查脚本为 [check-factory-magpie.mjs](../scripts/check-factory-magpie.mjs)。
+调用密钥通过 `MAGPIE_TEST_KEY` 环境变量提供，脚本不读取 Factory 登录文件：
+
+```sh
 MAGPIE_TEST_URL=http://127.0.0.1:3425 \
 MAGPIE_TEST_PROVIDER=factory-plugin \
+MAGPIE_TEST_MAX_OUTPUT_TOKENS=2048 \
 MAGPIE_TEST_RESULT=/tmp/factory-magpie-results.json \
 bun scripts/check-factory-magpie.mjs
 ```
 
-脚本每个模型发出一次真实请求，使用实际 Magpie 网关，不读取 Factory
-登录文件；有模型未返回生成内容时以状态 1 退出，不能把 403 当作测试通过。
-
-## 报告核对与来源
-
-用户提供的报告没有附带逐模型原始请求/响应记录；其模型组计数、MiniMax M2.7
-所用协议，以及非首位 system 消息的结果存在不一致，无法据此认定成功已复现。
-本次 fork 不复制该报告的成功结论，以 Magpie 网关实测为准。
-
-- [Factory 模型目录](https://docs.factory.com/models)
-- [Haiku 4.5 限制](https://platform.claude.com/docs/en/models/haiku-4-5/overview)
-- [Claude 模型规格](https://platform.claude.com/docs/en/models/overview)
-- [GPT-6.1 Sol 规格](https://developers.openai.com/api/docs/models/gpt-6.1-sol)
-- [Magpie 插件提供者 ID](https://github.com/yetone/magpie/blob/v0.1.604/internal/provider/plugins.go#L34-L45)
-- [Magpie 默认展示数量](https://github.com/yetone/magpie/blob/v0.1.604/internal/provider/models.go#L465-L502)
-- [Magpie 显式模型选择](https://github.com/yetone/magpie/blob/v0.1.604/providers_cli.go#L446-L462)
+`MAGPIE_TEST_MODELS` 可指定逗号分隔的模型 ID，未设置时逐一请求全部模型。
+每条路由需返回内容才算成功；403、超时、空输出均使脚本返回失败状态。
+`usable` 表示路由返回内容，不保证返回模型名等于请求名，应同时检查 `returned_model`。
+流式工具检查脚本为 [check-factory-magpie-tools.mjs](../scripts/check-factory-magpie-tools.mjs)，
+使用相同网关 URL 和调用密钥，可用 `MAGPIE_TEST_TOOLS_RESULT` 保存结果。
