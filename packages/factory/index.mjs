@@ -34,13 +34,14 @@ const E4 = ["low", "medium", "high", "xhigh"]
 const MODELS = [
   ["claude-fable-5.1", "Fable 5.1", ANTHROPIC, "anthropic", 867000, 128000, E5, true],
   ["claude-fable-5", "Fable 5", ANTHROPIC, "anthropic", 867000, 128000, E5, true],
-  ["claude-opus-5-5", "Opus 5.5", ANTHROPIC, "anthropic", 872000, 128000, E5, true],
+  ["claude-opus-5-5", "Opus 5.5", ANTHROPIC, "anthropic", 1000000, 128000, E5, true],
   ["claude-opus-5", "Opus 5", ANTHROPIC, "anthropic", 867000, 128000, E5, true],
   ["claude-opus-4-8", "Opus 4.8", ANTHROPIC, "anthropic", 867000, 128000, E5, true],
-  ["claude-sonnet-5-5", "Sonnet 5.5", ANTHROPIC, "anthropic", 872000, 128000, E5, true],
+  ["claude-sonnet-5-5", "Sonnet 5.5", ANTHROPIC, "anthropic", 1000000, 128000, E5, true],
   ["claude-sonnet-5", "Sonnet 5", ANTHROPIC, "anthropic", 872000, 128000, E5, true],
   ["claude-sonnet-4-6", "Sonnet 4.6", ANTHROPIC, "anthropic", 931000, 64000, ["low", "medium", "high", "max"], true],
-  ["claude-haiku-4-5-20251001", "Haiku 4.5", ANTHROPIC, "anthropic", 0, 0, ["low", "medium", "high"], true],
+  ["claude-haiku-4-5-20251001", "Haiku 4.5", ANTHROPIC, "anthropic", 200000, 64000, ["low", "medium", "high"], true],
+  ["gpt-6.1-sol", "GPT-6.1 Sol", RESPONSES, "openai", 1050000, 128000, E5, true],
   ["gpt-6-sol", "GPT-6 Sol", RESPONSES, "openai", 1050000, 128000, E6, true],
   ["gpt-6-astra", "GPT-6 Astra", RESPONSES, "openai", 1050000, 128000, E5, true],
   ["gpt-6-luna", "GPT-6 Luna", RESPONSES, "openai", 1050000, 128000, E6, true],
@@ -101,6 +102,7 @@ class FactoryStatus extends Error {
     this.body = body
   }
 }
+
 
 // refused is WorkOS turning the refresh token away for good: any 4xx but a
 // rate limit, as droid reads it.
@@ -455,7 +457,8 @@ function limitWindows(l) {
 function bodyModel(body) {
   try {
     if (body == null) return ""
-    const s = typeof body === "string" ? body : body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? Buffer.from(body).toString("utf8") : ""
+    const s = typeof body === "string" ? body : body instanceof ArrayBuffer ? Buffer.from(body).toString("utf8")
+      : ArrayBuffer.isView(body) ? Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("utf8") : ""
     return JSON.parse(s)?.model ?? ""
   } catch {
     return ""
@@ -645,7 +648,9 @@ export const FactoryAuthPlugin = async ({ client }) => {
         const { fresh, mendOrg } = account(getAuth)
 
         const send = async (input, init, body, renewed) => {
+          init?.signal?.throwIfAborted()
           const c = await fresh(renewed)
+          init?.signal?.throwIfAborted()
           let url = input instanceof Request ? input.url : String(input)
           // an EU org is served from Factory's EU region, an on-prem one
           // from its own host: the request goes there
@@ -671,9 +676,15 @@ export const FactoryAuthPlugin = async ({ client }) => {
         return {
           apiKey: "placeholder",
           async fetch(input, init) {
+            // A Request carries its own cancellation signal; converting it
+            // to a URL must not detach an SDK request from its caller.
+            const signal = init?.signal === undefined && input instanceof Request ? input.signal : init?.signal
+            signal?.throwIfAborted()
+            const options = { ...init, signal }
             let body = init?.body
             if (body == null && input instanceof Request && input.body) body = new Uint8Array(await input.arrayBuffer())
             if (body instanceof ReadableStream) body = new Uint8Array(await new Response(body).arrayBuffer())
+            signal?.throwIfAborted()
             const url = input instanceof Request ? input.url : String(input)
             // the built-in takes an account's lapse off when it renews the
             // token, whatever the request then meets, and never for an
@@ -684,11 +695,11 @@ export const FactoryAuthPlugin = async ({ client }) => {
             const answer = (res) => said(res, renewed ? "renewed" : "kept")
             let res
             try {
-              res = await send(input, init, body, onRenew)
+              res = await send(input, options, body, onRenew)
               if (res.status !== 403) return answer(res)
               let text = await res.text()
               if (await mendOrg(res.status, text, onRenew).catch(() => false)) {
-                res = await send(input, init, body, onRenew)
+                res = await send(input, options, body, onRenew)
                 if (res.status !== 403) return answer(res)
                 text = await res.text()
               }
