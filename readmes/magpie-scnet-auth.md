@@ -64,6 +64,17 @@ Command-line equivalent:
 node login.mjs          # prompts for username and password
 ```
 
+### SMS code
+
+1. Providers → **SCNet** → **＋** → choose **① Send SMS code**, enter the phone number; a 6-digit code is delivered
+2. Choose **② Sign in with SMS code**, enter the phone number and the code
+
+Or in one step from the terminal:
+
+```bash
+node login-sms.mjs
+```
+
 ### API key
 
 If an API key already exists on the platform, choose **API Key** and paste `sk-…`.
@@ -132,6 +143,7 @@ magpie gateway-key limit friend day --tokens 5000000
 magpie-scnet-auth/
 ├── index.mjs            provider declaration, credential resolution, model discovery
 ├── login.mjs            username/password login helper (exchanges for a key and writes it into magpie)
+├── login-sms.mjs        SMS-code login helper (same, one step)
 ├── package.json         package manifest
 ├── README.md            this document
 ├── README.zh-CN.md      Chinese translation
